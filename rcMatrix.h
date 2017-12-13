@@ -3,6 +3,8 @@
 using namespace std;
  
 class OutOfMem{};
+class IndexOutOfRange{};
+class WrongDim{};
  
 class CMatrix{
 	private:
@@ -14,10 +16,11 @@ class CMatrix{
 	class Cref;
 
 	CMatrix();
-	CMatrix(const CMatrix& cm);
+	CMatrix(const CMatrix& aaa);
 	CMatrix(unsigned int nrows, unsigned int ncols, double var);
 	CMatrix(unsigned int nrows, unsigned int ncols, double var1, double var2);
-	CMatrix(fstream& fs);void write(unsigned int i, double* c);
+	CMatrix(fstream& fs);
+	void write(unsigned int i, double* c);
 	double* read(unsigned int i) const;
 	double* operator[](unsigned int i )const;
 	CMatrix& operator=(const CMatrix& asOp);
@@ -25,7 +28,12 @@ class CMatrix{
 	~CMatrix();
 	friend ostream & operator << (ostream & s, const CMatrix & matrix);
 	friend CMatrix operator* (const CMatrix&, const CMatrix&);
+	friend ostream & operator << (ostream & s, const CMatrix::Cref& s1);
 	Cref operator[](unsigned int i);
+	
+	
+	
+	
 
 };
 
@@ -107,6 +115,208 @@ struct CMatrix::rcmatrix
 			}
 			this->n=1;
 		}
+		
  
+        ~rcmatrix(){
+			for(unsigned int i=0;i<this->rows;i++)
+			delete[] data[i];
+			delete[] data;
+        }
+		
+		rcmatrix(unsigned int nrows, unsigned int ncols,double** aaa){
+		    this->rows=nrows;
+            this->cols=ncols;
+            this->n=1;
+		    this->data = aaa;
+		}
+		
+        rcmatrix(const rcmatrix& aaa){
+                
+                                try
+                {
+                                        this->data = new double*[aaa.rows];
+                                        for(unsigned int i=0;i<aaa.rows;i++)
+                                        this->data[i]=new double[aaa.cols];
+                }
+                catch(...){
+                                    throw OutOfMem();
+                }
+                 
+                for(unsigned int i=0;i<aaa.rows;i++)
+                for(unsigned int j=0;j<aaa.cols;j++)
+                                        this->data[i][j]=aaa.data[i][j];
+                
+                 
+                this->rows=aaa.rows;
+                this->cols=aaa.cols;
+                this->n=1;
+ 
+                }
+ 
+        ~rcmatrix(){
+			for(unsigned int i=0;i<this->rows;i++)
+			delete[] data[i];
+			delete[] data;
+			
+		 rcmatrix* detach(){
+            if(n==1)
+                return this;
+            rcmatrix* t=new rcmatrix(*this);
+            n--;
+            return t;
+        }
+
+		void assign(double** p){
+			data = p;
+        }
+             
 };
+
+
+
+CMatrix::CMatrix(fstream& fs){
+	block = new rcmatrix(fs);
+}
+
+CMatrix::CMatrix(const CMatrix& aaa){
+	aaa.block->n++;
+	block = aaa.block;
+}
+
+CMatrix::~CMatrix(){
+	if(--block->n==0)
+		delete block;
+}
+
+CMatrix::CMatrix(){
+	block = new rcmatrix();
+}
+
+CMatrix::CMatrix(unsigned int nrows, unsigned int ncols, double var){
+	block = new rcmatrix(nrows,ncols,var);
+}
+ 
+CMatrix::CMatrix(unsigned int nrows, unsigned int ncols, double var1, double var2){
+	block = new rcmatrix(nrows,ncols,var1,var2);
+}
+ 
+CMatrix& CMatrix::operator = (const CMatrix& asOp){
+	asOp.block->n++;
+	if(--block->n == 0)
+		delete block;
+
+	block=asOp.block;
+	return *this;
+}
+
+CMatrix & CMatrix::operator=(double** co){
+	if(block->n==1){
+		block->assign(co);
+	}
+	else
+	{
+		rcmatrix* t= new rcmatrix(1,1,co);
+		his->block->n--;
+		this->block = t;
+	}
+	return *this;
+}
+
+ostream & operator << (ostream & s, const CMatrix & matrix){
+	s << "[";
+	for(unsigned int i=0;i<matrix.block->rows;i++)
+		for(unsigned int j=0;j<matrix.block->cols;j++){
+			s << matrix.block->data[i][j];
+			if(((j+1) % matrix.block->cols) == 0 && j!=0 && i!=matrix.block->rows-1)
+			s << "\n";
+			if(!(i==matrix.block->rows-1 && j==matrix.block->cols-1) && j!=matrix.block->cols-1)
+			s << ", ";
+		}
+	s << "]";
+    return s;
+}
+
+inline CMatrix operator * (const CMatrix& m1, const CMatrix& m2)
+{
+         
+        if(m1.block->cols != m2.block->rows)throw WrongDim();
+         
+        CMatrix newMatrix(m1.block->rows, m2.block->cols,0.0);
+ 
+        for(unsigned int i=0;i<newMatrix.block->rows;i++)
+        for(unsigned int j=0;j<newMatrix.block->cols;j++)
+        {
+            double var=0.0;
+ 
+            for(unsigned int lol=0;lol<m1.block->cols;lol++)
+                var += m1.block->data[i][lol]*m2.block->data[lol][j];
+                 
+            newMatrix.block->data[i][j] = var;
+        }
+         
+        return newMatrix;
+}
+
+double* CMatrix::read(unsigned int i) const{
+	try{
+		return block->data[i];
+	}
+	catch(...){
+		throw IndexOutOfRange();
+	}
+}
+
+void CMatrix::write(unsigned int i, double* c){
+	block = block->detach();
+	try{
+		block->data[i] = c;
+	}
+	catch(...){
+		throw IndexOutOfRange();
+	}
+}
+
+class CMatrix::Cref
+{
+	friend class CMatrix;
+	CMatrix& s;
+	unsigned int i;
+
+	Cref (CMatrix& ss, unsigned int ii): s(ss), i(ii){
+	cout << "cref contructor CALLED\n"<<endl;
+	};
+
+	public:
+
+	operator double*() const{
+		cout << "operator double* CALLED\n"<<endl;
+		return s.read(i);
+	};
+
+	CMatrix::Cref& operator = (double* c){
+		cout << "operator = (double* c) CALLED\n" << endl; 
+		s.write(i,c);
+		return *this;
+	};
+
+	CMatrix::Cref& operator = (const Cref& ref){
+		cout << "operator = (const Cref& ref) CALLED\n" << endl; 
+		return operator = ((double*)ref);
+	};
+
+
+	friend ostream& operator<<(ostream&, const CMatrix::Cref&);
+};
+
+CMatrix::Cref CMatrix::operator[](unsigned int i)
+{
+	cout << "Cref rcstring::operator[](unsigned int i) CALLED"<<endl;
+	return Cref(*this,i);
+}
+
+ostream& operator<<(ostream& o, const CMatrix::Cref& s1){
+	cout << "operator<<(ostream& o, const CMatrix::Cref& s1)\n"<<endl;
+	o << s1.s.block->data[s1.i][s1.i];
+	return o;
+}
  
